@@ -5,8 +5,16 @@ import sqlite3
 from typing import TYPE_CHECKING, Any, Iterable, Union
 
 import dedupe
-from dedupe._typing import (ArrayLinks, Blocks, Data, LookupResults, Record,
-                            RecordID)
+from dedupe._typing import (
+    ArrayLinks,
+    BlocksInt,
+    DataInt,
+    LookupResultsInt,
+    Record,
+    RecordID,
+)
+
+SearchR
 
 if TYPE_CHECKING:
     from importlib.resources.abc import Traversable
@@ -57,7 +65,7 @@ class EstablishmentGazetteer(dedupe.StaticGazetteer):
         if not indexed_records_exists:
             self.reblock_canonical()
 
-    def blocks(self, data: Data) -> Blocks:
+    def blocks(self, data: DataInt) -> BlocksInt:  # type: ignore[override]
         """
         Yield groups of pairs of records that share fingerprints.
         Each group contains one record from data_1 paired with the records
@@ -136,7 +144,7 @@ class EstablishmentGazetteer(dedupe.StaticGazetteer):
         )
 
         pair_blocks: Iterable[
-            tuple[RecordID, Iterable[sqlite3.Row]]
+            tuple[int, Iterable[sqlite3.Row]]
         ] = itertools.groupby(pairs, lambda x: x["record_id_a"])
 
         for a_record_id, pair_block in pair_blocks:
@@ -154,13 +162,13 @@ class EstablishmentGazetteer(dedupe.StaticGazetteer):
         con.execute("ROLLBACK")
         con.close()
 
-    def search(
+    def search(  # type: ignore[override]
         self,
-        data: Data,
+        data: DataInt,
         threshold: float = 0.0,
         n_matches: int = 1,
         generator: bool = False,
-    ) -> LookupResults:  # pragma: no cover
+    ) -> LookupResultsInt:
         """
         Identifies pairs of records that could refer to the same entity,
         returns tuples containing tuples of possible matches, with a
@@ -206,7 +214,7 @@ class EstablishmentGazetteer(dedupe.StaticGazetteer):
 
         yield from results
 
-    def _hydrate_matches(self, data: Data, results: ArrayLinks) -> LookupResults:
+    def _hydrate_matches(self, data: DataInt, results: ArrayLinks) -> LookupResultsInt:
 
         con = sqlite3.connect(self.db)
         con.row_factory = sqlite3.Row
