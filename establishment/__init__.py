@@ -7,8 +7,7 @@ from typing import TYPE_CHECKING, Any, Iterable, TextIO, Union
 
 import click
 import dedupe
-from dedupe._typing import (ArrayLinks, BlocksInt, DataInt, LookupResultsInt,
-                            Record)
+from dedupe._typing import ArrayLinks, BlocksInt, DataInt, LookupResultsInt, Record
 
 if TYPE_CHECKING:
     from importlib.resources.abc import Traversable
@@ -403,8 +402,6 @@ def main(infile: TextIO, outfile: TextIO, identifier: str):
             for matched_record in matches:
                 establishment_id, _, _, confidence = matched_record
                 writer.writerow([messy_record_id, establishment_id, confidence])
-
-        break
 
 
 if __name__ == "__main__":
