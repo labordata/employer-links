@@ -1,37 +1,34 @@
 import csv
 import itertools
-import os
 import sqlite3
 import sys
-from typing import TYPE_CHECKING, Any, Iterable, TextIO, Union
+from typing import TYPE_CHECKING, Any, Generator, Iterable, TextIO, Union
 
+import tqdm
 import click
 import dedupe
 from dedupe._typing import ArrayLinks, BlocksInt, DataInt, LookupResultsInt, Record
 
 if TYPE_CHECKING:
+    import os
     from importlib.resources.abc import Traversable
-else:
-    from importlib.resources import resources_abc
 
-    Traversable = resources_abc.Traversable
-
-PathLike = Union[str, Traversable, os.PathLike]
+    PathLike = Union[str, Traversable, os.PathLike]
 
 
 class EstablishmentGazetteer(dedupe.StaticGazetteer):
     def __init__(
         self,
-        db_path: PathLike,
+        db_path: "PathLike",
         canonical_table_name: str,
         entity_table_name: str,
-        settings_path: PathLike,
+        settings_path: "PathLike",
         num_cores=None,
     ):
         with open(settings_path, "rb") as settings_file:
             dedupe.api.StaticMatching.__init__(self, settings_file, num_cores)
 
-        self.db: PathLike = db_path
+        self.db: "PathLike" = db_path
         self.data_table_name = canonical_table_name
         self.entity_table_name = entity_table_name
 
@@ -161,7 +158,7 @@ class EstablishmentGazetteer(dedupe.StaticGazetteer):
         threshold: float = 0.0,
         n_matches: int = 1,
         generator: bool = False,
-    ) -> LookupResultsInt:
+    ):
         """
         Identifies pairs of records that could refer to the same entity,
         returns tuples containing tuples of possible matches, with a
@@ -207,15 +204,13 @@ class EstablishmentGazetteer(dedupe.StaticGazetteer):
 
         yield from results
 
-    def _hydrate_matches(self, data: DataInt, results: ArrayLinks) -> LookupResultsInt:
-
+    def _hydrate_matches(self, data: DataInt, results: ArrayLinks):
         con = sqlite3.connect(self.db)
         con.row_factory = sqlite3.Row
 
         seen_messy = set()
 
         for result in results:
-
             a = None
 
             canonical_ids = tuple(
@@ -257,13 +252,12 @@ class EstablishmentGazetteer(dedupe.StaticGazetteer):
             seen_messy.add(a)
 
         for k in data.keys() - seen_messy:
-            yield (k, data[k], ())
+            yield ((k, data[k]), ())
 
     def __del__(self) -> None:
         pass
 
     def reblock_canonical(self) -> None:
-
         con = sqlite3.connect(self.db)
         con.row_factory = sqlite3.Row
 
@@ -356,8 +350,8 @@ def preProcess(column: str) -> Union[str, None]:
 
 
 def readData(
-    f: TextIO, identifier: str, chunk_size: int = 5
-) -> dict[int, dict[str, Any]]:
+    f: TextIO, identifier: str, chunk_size: int = 100
+) -> Generator[dict[int, dict[str, Any]], None, None]:
     """
     Read in our data from a CSV file and create a dictionary of records,
     where the key is a unique record ID and each value is dict
@@ -365,7 +359,7 @@ def readData(
 
     data_d = {}
     reader = csv.DictReader(f)
-    for row in reader:
+    for row in tqdm.tqdm(reader):
         clean_row = [(k, preProcess(v)) for (k, v) in row.items()]
         row_id = int(row[identifier])
         data_d[row_id] = dict(clean_row)
@@ -382,8 +376,6 @@ def readData(
 def main(infile: TextIO, outfile: TextIO, identifier: str):
     from importlib.resources import files
 
-    import tqdm
-
     db_path = files("establishment").joinpath("gazetteer.db")
     settings_path = files("establishment").joinpath("learned_settings")
 
@@ -394,11 +386,11 @@ def main(infile: TextIO, outfile: TextIO, identifier: str):
     writer = csv.writer(outfile)
     writer.writerow([identifier, "establishment_identifier", "confidence"])
 
-    for messy_records_chunk in readData(infile, identifier):
+    for messy_records_chunk in readData(infile, identifier, chunk_size=5000):
         results = gazetteer.search(messy_records_chunk, n_matches=5, generator=False)
 
-        for messy_record, matches in tqdm.tqdm(results):
-            messy_record_id, *rest = messy_record
+        for messy_record, matches in results:
+            messy_record_id, rest = messy_record
             for matched_record in matches:
                 establishment_id, _, _, confidence = matched_record
                 writer.writerow([messy_record_id, establishment_id, confidence])
