@@ -2,19 +2,13 @@ import csv
 import itertools
 import os
 import sqlite3
-from typing import TYPE_CHECKING, Any, Iterable, Union
+import sys
+from typing import TYPE_CHECKING, Any, Iterable, TextIO, Union
 
+import click
 import dedupe
-from dedupe._typing import (
-    ArrayLinks,
-    BlocksInt,
-    DataInt,
-    LookupResultsInt,
-    Record,
-    RecordID,
-)
-
-SearchR
+from dedupe._typing import (ArrayLinks, BlocksInt, DataInt, LookupResultsInt,
+                            Record)
 
 if TYPE_CHECKING:
     from importlib.resources.abc import Traversable
@@ -143,9 +137,9 @@ class EstablishmentGazetteer(dedupe.StaticGazetteer):
             )
         )
 
-        pair_blocks: Iterable[
-            tuple[int, Iterable[sqlite3.Row]]
-        ] = itertools.groupby(pairs, lambda x: x["record_id_a"])
+        pair_blocks: Iterable[tuple[int, Iterable[sqlite3.Row]]] = itertools.groupby(
+            pairs, lambda x: x["record_id_a"]
+        )
 
         for a_record_id, pair_block in pair_blocks:
             a_record = data[a_record_id]
@@ -362,24 +356,31 @@ def preProcess(column: str) -> Union[str, None]:
     return column
 
 
-def readData(filename: PathLike) -> dict[int, dict[str, Any]]:
+def readData(
+    f: TextIO, identifier: str, chunk_size: int = 5
+) -> dict[int, dict[str, Any]]:
     """
     Read in our data from a CSV file and create a dictionary of records,
     where the key is a unique record ID and each value is dict
     """
 
     data_d = {}
-    with open(filename) as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            clean_row = [(k, preProcess(v)) for (k, v) in row.items()]
-            row_id = int(row["case_id"])
-            data_d[row_id] = dict(clean_row)
+    reader = csv.DictReader(f)
+    for row in reader:
+        clean_row = [(k, preProcess(v)) for (k, v) in row.items()]
+        row_id = int(row[identifier])
+        data_d[row_id] = dict(clean_row)
 
-    return data_d
+        if len(data_d) == chunk_size:
+            yield data_d
+            data_d = {}
 
 
-if __name__ == "__main__":
+@click.command()
+@click.argument("infile", type=click.File("r"), nargs=1, default=sys.stdin)
+@click.argument("outfile", type=click.File("w"), nargs=1, default=sys.stdout)
+@click.option("--identifier", type=str, nargs=1)
+def main(infile: TextIO, outfile: TextIO, identifier: str):
     from importlib.resources import files
 
     import tqdm
@@ -387,13 +388,24 @@ if __name__ == "__main__":
     db_path = files("establishment").joinpath("gazetteer.db")
     settings_path = files("establishment").joinpath("learned_settings")
 
-    messy_data = readData("whd.csv")
-
     gazetteer = EstablishmentGazetteer(
         db_path, "canonical", "entity_map", settings_path
     )
 
-    results = gazetteer.search(messy_data, n_matches=5, generator=False)
+    writer = csv.writer(outfile)
+    writer.writerow([identifier, "establishment_identifier", "confidence"])
 
-    for result in tqdm.tqdm(results):
-        pass
+    for messy_records_chunk in readData(infile, identifier):
+        results = gazetteer.search(messy_records_chunk, n_matches=5, generator=False)
+
+        for messy_record, matches in tqdm.tqdm(results):
+            messy_record_id, *rest = messy_record
+            for matched_record in matches:
+                establishment_id, _, _, confidence = matched_record
+                writer.writerow([messy_record_id, establishment_id, confidence])
+
+        break
+
+
+if __name__ == "__main__":
+    main()
